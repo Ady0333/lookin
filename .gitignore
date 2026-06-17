@@ -1,11 +1,75 @@
-# Python virtualenv
+# ---- Virtual environments ----
 venv/
 .venv/
+env/
+ENV/
 
-# Byte-compiled / caches
+# ---- Byte-compiled / optimized / caches ----
 __pycache__/
 *.py[cod]
-*.egg-info/
+*$py.class
+*.so
 
-# DeepFace model weights cache
+# ---- Distribution / packaging ----
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+wheels/
+
+# ---- Test / coverage / type-check caches ----
+.pytest_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+.cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- Environment / secrets ----
+.env
+.env.*
+*.env
+
+# ---- Local model weights & caches (DeepFace, Keras, HF, torch) ----
 .deepface/
+~/.deepface/
+*.h5
+*.pb
+*.onnx
+*.pt
+*.pth
+*.tflite
+*.caffemodel
+weights/
+models/
+model_cache/
+.keras/
+.cache/huggingface/
+
+# ---- Temp / local image files ----
+tmp/
+temp/
+*.tmp
+captures/
+uploads/
+*.bmp
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.webp
+
+# Exception: deliberately-committed test fixtures (real captures still ignored everywhere else)
+!tests/fixtures/
+!tests/fixtures/**
+
+# ---- Editor / OS cruft ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
