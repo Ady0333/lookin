@@ -1,0 +1,11 @@
+# Python virtualenv
+venv/
+.venv/
+
+# Byte-compiled / caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# DeepFace model weights cache
+.deepface/
