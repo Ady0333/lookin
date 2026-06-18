@@ -16,7 +16,7 @@ import tempfile
 
 import bcrypt
 import psycopg
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, Form, UploadFile, HTTPException
 from pydantic import BaseModel
 
 # Reuse the verified embedding logic unchanged (ArcFace + retinaface + guards).
@@ -121,3 +121,62 @@ def signup(payload: SignupRequest):
 
     # Never return the password or the hash.
     return {"id": new_id, "email": email}
+
+
+@app.post("/enroll-face")
+async def enroll_face(email: str = Form(...), file: UploadFile = File(...)):
+    """Enroll (or re-enroll) a face for an existing user.
+
+    200 -> {"email": <email>, "face_enrolled": true}
+    404 -> no user with that email
+    400 -> no face / multiple faces / unreadable image
+
+    DESIGN DECISION: if the user already has a face enrolled, this OVERWRITES
+    it (so re-enrolling with a better photo works). Flagged for confirmation.
+
+    The embedding itself is never returned.
+    """
+    email = email.strip().lower()
+
+    # 1. Verify the user exists BEFORE doing any (expensive) face work.
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM users WHERE email = %s", (email,))
+            row = cur.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    # 2. Save the upload to a temp file, embed it, always clean up.
+    #    (Temp-file handling identical to /embed.)
+    suffix = os.path.splitext(file.filename or "")[1] or ".jpg"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp_path = tmp.name
+    try:
+        contents = await file.read()
+        tmp.write(contents)
+        tmp.close()
+
+        # Existing, unchanged embedding logic (512-d ArcFace + guards).
+        embedding = get_embedding(tmp_path)
+
+    except (NoFaceFoundError, MultipleFacesError, FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    finally:
+        # Always clean up the temp file, even on error.
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+    # 3. Store the embedding. pgvector accepts its text form "[v1,v2,...]";
+    #    we pass that as a bound parameter and cast to vector -- parameterized,
+    #    no string formatting into the SQL itself.
+    vector_literal = "[" + ",".join(str(v) for v in embedding) + "]"
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET face_embedding = %s::vector WHERE email = %s",
+                (vector_literal, email),
+            )
+
+    # Never return the embedding itself.
+    return {"email": email, "face_enrolled": True}
