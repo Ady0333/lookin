@@ -55,6 +55,7 @@ soupsieve==2.8.4
 sympy==1.14.0
 tensorflow==2.21.0
 termcolor==3.3.0
+tf_keras==2.21.0
 tqdm==4.68.3
 typing_extensions==4.15.0
 tzdata==2026.2
