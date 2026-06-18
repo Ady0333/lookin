@@ -41,6 +41,12 @@ MIN_PASSWORD_LENGTH = 8
 # Not a full RFC validator -- just rejects obviously-malformed input.
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
+# Stricter threshold for the 1-to-many "forgot email" search than the 1-to-1
+# threshold (0.68). In 1-to-many we compare against EVERY enrolled user, so the
+# chance of a false accept grows with population size; a tighter cutoff reduces
+# the risk of matching the wrong person when no email is provided to anchor it.
+STRICT_FACE_THRESHOLD = 0.55
+
 
 @app.post("/embed")
 async def embed(file: UploadFile = File(...)):
@@ -334,3 +340,67 @@ def get_user_profile(authorization: str = Header(None)):
     user_id, email, face_enrolled = row
     # Never return the password_hash or face_embedding itself.
     return {"id": user_id, "email": email, "face_enrolled": face_enrolled}
+
+
+@app.post("/login-face-search")
+async def login_face_search(file: UploadFile = File(...)):
+    """Authenticate by face alone (1-to-many "forgot email" path).
+
+    No email is provided: we embed the uploaded face and search ALL enrolled
+    users for the closest match, using a STRICTER threshold than the 1-to-1 path.
+
+    200 -> {"email": <matched email>, "distance": <rounded>, "token": <jwt>}
+    401 -> "No match found"  (nothing close enough, or no enrolled users)
+    400 -> no face / multiple faces / unreadable image
+
+    We never reveal runners-up -- only the single final result.
+    """
+    # 1. Embed the uploaded image (guards + temp-file cleanup, same as /embed).
+    suffix = os.path.splitext(file.filename or "")[1] or ".jpg"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp_path = tmp.name
+    try:
+        contents = await file.read()
+        tmp.write(contents)
+        tmp.close()
+        new_embedding = get_embedding(tmp_path)
+    except (NoFaceFoundError, MultipleFacesError, FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+    # 2. Pull every enrolled user. Simple linear scan in Python for now
+    #    (pgvector ANN indexing is a later optimization once user count matters).
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, email, face_embedding FROM users WHERE face_embedding IS NOT NULL"
+            )
+            rows = cur.fetchall()
+
+    # 3. Find the single closest match using the SAME cosine logic as match.py
+    #    and /login-face (not reinvented).
+    best_user_id = None
+    best_email = None
+    best_distance = None
+    for row_id, row_email, stored_vector in rows:
+        stored_embedding = json.loads(stored_vector)
+        distance = float(find_cosine_distance(new_embedding, stored_embedding))
+        if best_distance is None or distance < best_distance:
+            best_distance = distance
+            best_user_id = row_id
+            best_email = row_email
+
+    # 4. Reject if no enrolled users, or the best match isn't close enough.
+    #    Generic 401 either way -- never reveal who was near.
+    if best_distance is None or best_distance > STRICT_FACE_THRESHOLD:
+        raise HTTPException(status_code=401, detail="No match found")
+
+    # 5. Match within strict threshold -> issue a JWT.
+    token = create_token(best_user_id, best_email)
+    return {
+        "email": best_email,
+        "distance": round(best_distance, 4),
+        "token": token,
+    }
