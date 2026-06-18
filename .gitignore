@@ -33,6 +33,8 @@ htmlcov/
 .env
 .env.*
 *.env
+# ...but the placeholder template IS committable (documents required vars)
+!.env.example
 
 # ---- Local model weights & caches (DeepFace, Keras, HF, torch) ----
 .deepface/
