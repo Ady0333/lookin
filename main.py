@@ -24,7 +24,7 @@ from pydantic import BaseModel
 import jwt as pyjwt
 
 # Reuse the verified embedding logic unchanged (ArcFace + retinaface + guards).
-from embed import get_embedding, MODEL_NAME, NoFaceFoundError, MultipleFacesError
+from embed import get_embedding, is_live_face, MODEL_NAME, NoFaceFoundError, MultipleFacesError
 # Reuse the DB connection helper unchanged.
 from db import get_connection
 # Reuse the exact match logic (DeepFace cosine distance + ArcFace threshold).
@@ -266,6 +266,13 @@ async def login_face(email: str = Form(...), file: UploadFile = File(...)):
         contents = await file.read()
         tmp.write(contents)
         tmp.close()
+
+        # Liveness check FIRST -- fail fast on a spoof before any identity work.
+        # is_live_face fails closed (returns not-live) on any model error.
+        live, _spoof_score = is_live_face(tmp_path)
+        if not live:
+            raise HTTPException(status_code=401, detail="Liveness check failed")
+
         new_embedding = get_embedding(tmp_path)
     except (NoFaceFoundError, MultipleFacesError, FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -363,6 +370,13 @@ async def login_face_search(file: UploadFile = File(...)):
         contents = await file.read()
         tmp.write(contents)
         tmp.close()
+
+        # Liveness check FIRST -- fail fast on a spoof before the (expensive)
+        # 1-to-many scan. is_live_face fails closed on any model error.
+        live, _spoof_score = is_live_face(tmp_path)
+        if not live:
+            raise HTTPException(status_code=401, detail="Liveness check failed")
+
         new_embedding = get_embedding(tmp_path)
     except (NoFaceFoundError, MultipleFacesError, FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

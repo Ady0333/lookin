@@ -12,6 +12,8 @@ import os
 import sys
 
 from deepface import DeepFace
+# DeepFace raises this (a ValueError subclass) when no face is detected.
+from deepface.modules.exceptions import FaceNotDetected
 
 # --- Constants --------------------------------------------------------------
 
@@ -94,6 +96,65 @@ def get_embedding(image_path):
         )
 
     return embedding
+
+
+def is_live_face(image_path):
+    """Run DeepFace's anti-spoofing (liveness) check on a single face.
+
+    Returns:
+        (is_live: bool, spoof_score: float | None)
+        is_live is True only when DeepFace's anti-spoofing model positively
+        classifies the face as real/live. spoof_score is the model's
+        confidence in its decision (None if unavailable).
+
+    Raises:
+        FileNotFoundError:  path missing.
+        NoFaceFoundError:   no face detected (an input problem -> caller 400).
+        MultipleFacesError: more than one face detected.
+
+    FAIL CLOSED: if the liveness model itself fails (can't load, inference
+    error, or doesn't return a verdict), we return (False, None) -- i.e. we
+    treat an unverifiable face as spoofed and reject. Never fail open.
+    """
+    if not os.path.isfile(image_path):
+        raise FileNotFoundError(f"Image path does not exist or is not a file: {image_path}")
+
+    try:
+        # Same detector as get_embedding (retinaface) so the same face is
+        # analyzed. anti_spoofing=True adds is_real / antispoof_score per face.
+        faces = DeepFace.extract_faces(
+            img_path=image_path,
+            detector_backend="retinaface",
+            anti_spoofing=True,
+            enforce_detection=True,
+        )
+    except FaceNotDetected as exc:
+        # ONLY a genuine "no face in image" -> input error -> caller returns 400.
+        raise NoFaceFoundError(f"No face detected in image: {image_path}") from exc
+    except Exception:
+        # ANY other failure -- liveness model unavailable (e.g. torch missing),
+        # inference error, or an unreadable image -- is treated as a liveness
+        # failure. FAIL CLOSED: report not-live rather than risk failing open.
+        return (False, None)
+
+    # Defensive face-count guards (mirrors get_embedding).
+    if len(faces) == 0:
+        raise NoFaceFoundError(f"No face detected in image: {image_path}")
+    if len(faces) > 1:
+        raise MultipleFacesError(
+            f"Multiple faces detected ({len(faces)}) in image: {image_path}. "
+            "This step requires exactly one face."
+        )
+
+    face = faces[0]
+    is_real = face.get("is_real")
+    spoof_score = face.get("antispoof_score")
+
+    # If the anti-spoofing verdict is missing for any reason, FAIL CLOSED.
+    if is_real is None:
+        return (False, None)
+
+    return (bool(is_real), float(spoof_score) if spoof_score is not None else None)
 
 
 # --- Manual check / CLI -----------------------------------------------------
