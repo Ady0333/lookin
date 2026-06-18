@@ -10,6 +10,7 @@ Bad input returns a clean HTTP 4xx with a JSON error message -- never a
 hash are never logged or returned.
 """
 
+import json
 import os
 import re
 import tempfile
@@ -17,12 +18,15 @@ import tempfile
 import bcrypt
 import psycopg
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 # Reuse the verified embedding logic unchanged (ArcFace + retinaface + guards).
-from embed import get_embedding, NoFaceFoundError, MultipleFacesError
+from embed import get_embedding, MODEL_NAME, NoFaceFoundError, MultipleFacesError
 # Reuse the DB connection helper unchanged.
 from db import get_connection
+# Reuse the exact match logic (DeepFace cosine distance + ArcFace threshold).
+from match import find_cosine_distance, find_threshold, DISTANCE_METRIC
 
 app = FastAPI(title="Lookin", version="0.6.0")
 
@@ -180,3 +184,63 @@ async def enroll_face(email: str = Form(...), file: UploadFile = File(...)):
 
     # Never return the embedding itself.
     return {"email": email, "face_enrolled": True}
+
+
+@app.post("/login-face")
+async def login_face(email: str = Form(...), file: UploadFile = File(...)):
+    """Authenticate a user by email + face (1-to-1 fast path).
+
+    200 -> {"authenticated": true,  "email": email, "distance": <rounded>}
+    401 -> {"authenticated": false, "distance": <rounded>}
+    404 -> no user with that email
+    400 -> no face enrolled, or no face / multiple faces / unreadable image
+
+    Embeddings are never returned. We DO return the distance for now (debugging)
+    -- flagged as a possible info leak to lock down later.
+    """
+    email = email.strip().lower()
+
+    # 1. Look up the user and their stored embedding.
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT face_embedding FROM users WHERE email = %s", (email,)
+            )
+            row = cur.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="User not found.")
+    stored_vector = row[0]
+    if stored_vector is None:
+        raise HTTPException(status_code=400, detail="No face enrolled for this account.")
+
+    # 2. Embed the uploaded image (guards + temp-file cleanup, same as /embed).
+    suffix = os.path.splitext(file.filename or "")[1] or ".jpg"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp_path = tmp.name
+    try:
+        contents = await file.read()
+        tmp.write(contents)
+        tmp.close()
+        new_embedding = get_embedding(tmp_path)
+    except (NoFaceFoundError, MultipleFacesError, FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+    # 3. Parse the stored vector. pgvector returns its text form "[v1,v2,...]"
+    #    which is valid JSON, so json.loads gives us a list of floats.
+    stored_embedding = json.loads(stored_vector)
+
+    # 4. Same cosine distance + ArcFace threshold as match.py (not reinvented).
+    distance = float(find_cosine_distance(new_embedding, stored_embedding))
+    threshold = find_threshold(MODEL_NAME, DISTANCE_METRIC)
+    distance_rounded = round(distance, 4)
+
+    # 5. Decide. Smaller distance = more similar; match when distance <= threshold.
+    if distance <= threshold:
+        return {"authenticated": True, "email": email, "distance": distance_rounded}
+    return JSONResponse(
+        status_code=401,
+        content={"authenticated": False, "distance": distance_rounded},
+    )
