@@ -27,6 +27,8 @@ from embed import get_embedding, MODEL_NAME, NoFaceFoundError, MultipleFacesErro
 from db import get_connection
 # Reuse the exact match logic (DeepFace cosine distance + ArcFace threshold).
 from match import find_cosine_distance, find_threshold, DISTANCE_METRIC
+# JWT token creation and verification.
+from jwt_token import create_token, verify_token
 
 app = FastAPI(title="Lookin", version="0.6.0")
 
@@ -127,6 +129,41 @@ def signup(payload: SignupRequest):
     return {"id": new_id, "email": email}
 
 
+@app.post("/login")
+def login(payload: SignupRequest):
+    """Authenticate with email and password.
+
+    200 -> {"email": email, "token": <jwt>}
+    401 -> {"detail": "Invalid email or password."}  (same for both wrong password and missing email)
+
+    The error message is intentionally generic: we do NOT say "email not found"
+    vs "password wrong", as that leaks whether the email is registered
+    (account enumeration attack).
+    """
+    email = payload.email.strip().lower()
+    password = payload.password
+
+    # 1. Look up the user by email.
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, password_hash FROM users WHERE email = %s", (email,))
+            row = cur.fetchone()
+
+    # 2. If email not found, or password doesn't match, return the SAME generic
+    #    401 (do not leak whether the email exists).
+    if row is None:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+
+    user_id, password_hash = row
+    # bcrypt.checkpw expects bytes; both password and hash are checked against each other.
+    if not bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8")):
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+
+    # 3. Password matches. Issue a JWT.
+    token = create_token(user_id, email)
+    return {"email": email, "token": token}
+
+
 @app.post("/enroll-face")
 async def enroll_face(email: str = Form(...), file: UploadFile = File(...)):
     """Enroll (or re-enroll) a face for an existing user.
@@ -204,12 +241,12 @@ async def login_face(email: str = Form(...), file: UploadFile = File(...)):
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT face_embedding FROM users WHERE email = %s", (email,)
+                "SELECT id, face_embedding FROM users WHERE email = %s", (email,)
             )
             row = cur.fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="User not found.")
-    stored_vector = row[0]
+    user_id, stored_vector = row
     if stored_vector is None:
         raise HTTPException(status_code=400, detail="No face enrolled for this account.")
 
@@ -239,7 +276,13 @@ async def login_face(email: str = Form(...), file: UploadFile = File(...)):
 
     # 5. Decide. Smaller distance = more similar; match when distance <= threshold.
     if distance <= threshold:
-        return {"authenticated": True, "email": email, "distance": distance_rounded}
+        token = create_token(user_id, email)
+        return {
+            "authenticated": True,
+            "email": email,
+            "distance": distance_rounded,
+            "token": token,
+        }
     return JSONResponse(
         status_code=401,
         content={"authenticated": False, "distance": distance_rounded},
