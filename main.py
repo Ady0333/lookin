@@ -17,9 +17,11 @@ import tempfile
 
 import bcrypt
 import psycopg
-from fastapi import FastAPI, File, Form, UploadFile, HTTPException
+from fastapi import FastAPI, File, Form, Header, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
+import jwt as pyjwt
 
 # Reuse the verified embedding logic unchanged (ArcFace + retinaface + guards).
 from embed import get_embedding, MODEL_NAME, NoFaceFoundError, MultipleFacesError
@@ -287,3 +289,48 @@ async def login_face(email: str = Form(...), file: UploadFile = File(...)):
         status_code=401,
         content={"authenticated": False, "distance": distance_rounded},
     )
+
+
+@app.get("/me")
+def get_user_profile(authorization: str = Header(None)):
+    """Get the authenticated user's profile from a valid JWT.
+
+    200 -> {"id": <id>, "email": <email>, "face_enrolled": <bool>}
+    401 -> missing/invalid header, or invalid/expired token
+    """
+    # 1. Validate the Authorization header format.
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
+
+    parts = authorization.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
+
+    token = parts[1]
+
+    # 2. Validate and decode the token.
+    try:
+        decoded = verify_token(token)
+    except (pyjwt.ExpiredSignatureError, pyjwt.InvalidTokenError):
+        raise HTTPException(status_code=401, detail="Invalid or expired token") from None
+
+    # 3. Extract user_id from the token and look up the user.
+    user_id = decoded.get("user_id")
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, email, face_embedding IS NOT NULL as face_enrolled FROM users WHERE id = %s",
+                (user_id,),
+            )
+            row = cur.fetchone()
+
+    if row is None:
+        # User ID in token doesn't exist in DB (shouldn't happen, but handle it).
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    user_id, email, face_enrolled = row
+    # Never return the password_hash or face_embedding itself.
+    return {"id": user_id, "email": email, "face_enrolled": face_enrolled}
