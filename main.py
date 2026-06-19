@@ -16,9 +16,13 @@ import re
 import tempfile
 
 import bcrypt
+import numpy as np
 import psycopg
+from deepface import DeepFace
 from fastapi import FastAPI, File, Form, Header, UploadFile, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import jwt as pyjwt
@@ -34,6 +38,69 @@ from jwt_token import create_token, verify_token
 
 app = FastAPI(title="Lookin", version="0.6.0")
 
+# Serve static assets (logos, icons) from lookin/static/ at /static/...
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# CORS for the local demo frontend. The frontend can be opened directly as a
+# file (Origin "null") or served from 127.0.0.1:8001. We do NOT use "*" -- this
+# is an explicit allow-list. No cookies are used (JWT is sent in a header), so
+# allow_credentials stays False.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://127.0.0.1:8001",
+        "http://localhost:8001",
+        "http://172.30.244.187:8001",
+        "null",  # file:// origin
+    ],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# --- Model warmup -----------------------------------------------------------
+# DeepFace lazily loads its heavy models on the first request, which makes the
+# first face login painfully slow. Pre-load them at startup so they stay
+# resident in memory and every request is fast from the first one onward.
+
+@app.on_event("startup")
+def warm_up_models():
+    print("Models warming up...")
+
+    # Face recognition (ArcFace) loads directly.
+    DeepFace.build_model("ArcFace")
+
+    # RetinaFace (the detector) loads automatically on the first detection call,
+    # so trigger it with a dummy extract on a tiny blank image. A blank image has
+    # no face, so a no-face error is expected here -- we only want the model
+    # loaded into memory, so swallow it.
+    blank = np.zeros((100, 100, 3), dtype=np.uint8)
+    try:
+        DeepFace.extract_faces(
+            img_path=blank,
+            detector_backend="retinaface",
+            enforce_detection=True,
+        )
+    except Exception:
+        # Expected: no face on a blank image. The detector model is now loaded.
+        pass
+
+    print("Models ready.")
+
+
+# --- Frontend ---------------------------------------------------------------
+# Serve the single-page demo frontend from the same app.
+
+@app.get("/")
+async def serve_frontend():
+    return FileResponse("frontend/index.html")
+
+
+@app.get("/index.html")
+async def serve_frontend_html():
+    return FileResponse("frontend/index.html")
+
+
 # Minimum password length (chars). Adaptive bcrypt hashing is used regardless.
 MIN_PASSWORD_LENGTH = 8
 
@@ -46,6 +113,28 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 # chance of a false accept grows with population size; a tighter cutoff reduces
 # the risk of matching the wrong person when no email is provided to anchor it.
 STRICT_FACE_THRESHOLD = 0.55
+
+
+def mask_email(email: str) -> str:
+    """Mask an email for display so we never reveal a full address that the
+    caller shouldn't already know (e.g. other people's accounts).
+
+    Rules (mirror the frontend's masking exactly):
+      local part <= 3 chars: first 1 + "***" + last 1
+      local part <= 6 chars: first 2 + "***" + last 2
+      otherwise:             first 2 + "***" + last 3
+    """
+    if "@" not in email:
+        return email
+    local, domain = email.split("@", 1)
+    n = len(local)
+    if n <= 3:
+        masked = local[:1] + "***" + local[-1:]
+    elif n <= 6:
+        masked = local[:2] + "***" + local[-2:]
+    else:
+        masked = local[:2] + "***" + local[-3:]
+    return masked + "@" + domain
 
 
 @app.post("/embed")
@@ -208,6 +297,17 @@ async def enroll_face(email: str = Form(...), file: UploadFile = File(...)):
         # Existing, unchanged embedding logic (512-d ArcFace + guards).
         embedding = get_embedding(tmp_path)
 
+        # Liveness check before storing -- reject a photo/screen spoof at
+        # enrollment so a spoofed face can never be registered. Runs while
+        # tmp_path still exists (before the finally deletes it).
+        # is_live_face fails closed (returns not-live) on any model error.
+        live, _spoof_score = is_live_face(tmp_path)
+        if not live:
+            raise HTTPException(
+                status_code=400,
+                detail="Liveness check failed. Please use a live camera, not a photo.",
+            )
+
     except (NoFaceFoundError, MultipleFacesError, FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -354,13 +454,15 @@ async def login_face_search(file: UploadFile = File(...)):
     """Authenticate by face alone (1-to-many "forgot email" path).
 
     No email is provided: we embed the uploaded face and search ALL enrolled
-    users for the closest match, using a STRICTER threshold than the 1-to-1 path.
+    users for matches under the STRICTER threshold (0.55) than the 1-to-1 path.
 
-    200 -> {"email": <matched email>, "distance": <rounded>, "token": <jwt>}
-    401 -> "No match found"  (nothing close enough, or no enrolled users)
+    200 (one match)      -> {"match_count": 1, "email": <masked>, "token": <jwt>}
+    200 (several matches) -> {"match_count": N,
+                             "accounts": [{"masked_email": ..., "user_id": ...}]}
+                             (NO token -- caller must pick one via /select-account)
+    401 -> "No match found"          (nothing close enough, or no enrolled users)
+    401 -> "Liveness check failed"   (spoof)
     400 -> no face / multiple faces / unreadable image
-
-    We never reveal runners-up -- only the single final result.
     """
     # 1. Embed the uploaded image (guards + temp-file cleanup, same as /embed).
     suffix = os.path.splitext(file.filename or "")[1] or ".jpg"
@@ -393,28 +495,132 @@ async def login_face_search(file: UploadFile = File(...)):
             )
             rows = cur.fetchall()
 
-    # 3. Find the single closest match using the SAME cosine logic as match.py
-    #    and /login-face (not reinvented).
-    best_user_id = None
-    best_email = None
-    best_distance = None
+    # 3. Collect ALL users under the strict threshold (same cosine logic as
+    #    match.py / /login-face), closest first.
+    matches = []
     for row_id, row_email, stored_vector in rows:
         stored_embedding = json.loads(stored_vector)
         distance = float(find_cosine_distance(new_embedding, stored_embedding))
-        if best_distance is None or distance < best_distance:
-            best_distance = distance
-            best_user_id = row_id
-            best_email = row_email
+        if distance <= STRICT_FACE_THRESHOLD:
+            matches.append((distance, row_id, row_email))
+    matches.sort(key=lambda m: m[0])  # closest first
 
-    # 4. Reject if no enrolled users, or the best match isn't close enough.
-    #    Generic 401 either way -- never reveal who was near.
-    if best_distance is None or best_distance > STRICT_FACE_THRESHOLD:
+    # 4. No match -> generic 401 (never reveal who was near).
+    if not matches:
         raise HTTPException(status_code=401, detail="No match found")
 
-    # 5. Match within strict threshold -> issue a JWT.
-    token = create_token(best_user_id, best_email)
+    # 5a. Exactly one match -> issue a JWT immediately (return masked email).
+    if len(matches) == 1:
+        _distance, user_id, email = matches[0]
+        token = create_token(user_id, email)
+        return {"match_count": 1, "email": mask_email(email), "token": token}
+
+    # 5b. Several faces match -> do NOT issue a token. Return masked choices and
+    #     let the caller re-verify against one specific account via /select-account.
     return {
-        "email": best_email,
-        "distance": round(best_distance, 4),
-        "token": token,
+        "match_count": len(matches),
+        "accounts": [
+            {"masked_email": mask_email(email), "user_id": user_id}
+            for (_distance, user_id, email) in matches
+        ],
     }
+
+
+@app.post("/check-face-exists")
+async def check_face_exists(file: UploadFile = File(...)):
+    """Read-only check: is this face already enrolled on any account?
+
+    Used during enrollment to warn about a face that's already linked elsewhere.
+    Issues NO token and reveals only MASKED emails.
+
+    200 -> {"found": bool, "accounts": [<masked email>, ...]}
+    400 -> no face / multiple faces / unreadable image
+    """
+    # Embed the uploaded image (temp-file cleanup, same as /embed). No liveness
+    # here -- this is a non-authenticating, read-only pre-check.
+    suffix = os.path.splitext(file.filename or "")[1] or ".jpg"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp_path = tmp.name
+    try:
+        contents = await file.read()
+        tmp.write(contents)
+        tmp.close()
+        new_embedding = get_embedding(tmp_path)
+    except (NoFaceFoundError, MultipleFacesError, FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT email, face_embedding FROM users WHERE face_embedding IS NOT NULL"
+            )
+            rows = cur.fetchall()
+
+    accounts = []
+    for row_email, stored_vector in rows:
+        stored_embedding = json.loads(stored_vector)
+        distance = float(find_cosine_distance(new_embedding, stored_embedding))
+        if distance <= STRICT_FACE_THRESHOLD:
+            accounts.append(mask_email(row_email))
+
+    return {"found": len(accounts) > 0, "accounts": accounts}
+
+
+@app.post("/select-account")
+async def select_account(user_id: int = Form(...), file: UploadFile = File(...)):
+    """Re-verify a face against ONE specific account and issue a token.
+
+    Second step of the multi-match face-search flow: the caller picked a
+    user_id from /login-face-search and now proves the face matches THAT account
+    (1-to-1, threshold 0.68), with a liveness check.
+
+    200 -> {"email": <email>, "token": <jwt>}
+    401 -> "Liveness check failed" or "Face verification failed"
+    404 -> user not found
+    400 -> no face / multiple faces / unreadable image, or no face enrolled
+    """
+    # 1. Look up the chosen user and their stored embedding.
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT email, face_embedding FROM users WHERE id = %s", (user_id,)
+            )
+            row = cur.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="User not found.")
+    email, stored_vector = row
+    if stored_vector is None:
+        raise HTTPException(status_code=400, detail="No face enrolled for this account.")
+
+    # 2. Embed + liveness on the uploaded image (temp-file cleanup, same as elsewhere).
+    suffix = os.path.splitext(file.filename or "")[1] or ".jpg"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp_path = tmp.name
+    try:
+        contents = await file.read()
+        tmp.write(contents)
+        tmp.close()
+
+        live, _spoof_score = is_live_face(tmp_path)
+        if not live:
+            raise HTTPException(status_code=401, detail="Liveness check failed")
+
+        new_embedding = get_embedding(tmp_path)
+    except (NoFaceFoundError, MultipleFacesError, FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+    # 3. 1-to-1 match against the chosen account (standard 0.68 threshold).
+    stored_embedding = json.loads(stored_vector)
+    distance = float(find_cosine_distance(new_embedding, stored_embedding))
+    threshold = find_threshold(MODEL_NAME, DISTANCE_METRIC)
+    if distance <= threshold:
+        token = create_token(user_id, email)
+        return {"email": email, "token": token}
+
+    raise HTTPException(status_code=401, detail="Face verification failed")

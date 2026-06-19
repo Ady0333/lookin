@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Lookin</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpath d='M5 50 Q50 10 95 50 Q50 90 5 50 Z' fill='%231a5c38'/%3E%3Cpath d='M33 50 L45 62 L68 36' stroke='%23ffffff' stroke-width='8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    /* Lookin design system tokens */
+    --green: #1a5c38;
+    --green-hover: #15492c;
+    --green-press: #134029;
+    --green-ink: #0f2a1c;
+    --paper: #f7f8f7;
+    --line: #e3e6e3;
+    --muted: #5a6b60;
+    --ink: #14241b;
+    --danger: #b3261e;
+    --warn: #8a6300;
+
+    /* Working aliases used throughout the stylesheet */
+    --bg: var(--paper);
+    --card: #ffffff;
+    --accent: var(--green);
+    --accent-hover: var(--green-hover);
+    --accent-soft: #eef4f0; /* soft green tint derived from --green */
+    --border: var(--line);
+    --err: var(--danger);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "DM Sans", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 16px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* Views — each fills the full viewport */
+  .view { min-height: 100vh; display: flex; flex-direction: column; }
+  .hidden { display: none !important; }
+  .muted { color: var(--muted); }
+
+  /* Headings — understated */
+  h1, h2, h3 { font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  h2 { font-size: 24px; margin-bottom: 8px; }
+  h3 { font-size: 18px; margin-bottom: 16px; }
+  .sub { color: var(--muted); margin: 0 0 32px; }
+
+  /* Top bar (signup / enroll / login) */
+  .topnav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 48px; border-bottom: 1px solid var(--border); background: transparent;
+  }
+  .topnav .brand-sm { font-weight: 600; color: var(--accent); font-size: 20px; }
+  .topnav .viewname { color: var(--muted); font-size: 15px; }
+  .brand-sm { display: inline-flex; align-items: center; gap: 8px; }
+  .brand-icon { width: 24px; height: 24px; display: block; flex: none; }
+  .logo-full { width: 200px; height: auto; display: block; }
+
+  /* Page content area */
+  .page { flex: 1; padding: 48px; width: 100%; }
+  .two-col { display: flex; gap: 64px; align-items: flex-start; }
+  .two-col > .pane { flex: 1; min-width: 0; }
+  .pane.divider { border-left: 1px solid var(--border); padding-left: 64px; }
+
+  /* Form fields */
+  label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 8px; }
+  .field { margin-bottom: 24px; }
+  input[type=email], input[type=password], input[type=text] {
+    width: 100%; padding: 12px 16px; font-size: 16px; font-family: inherit;
+    border: 1.5px solid var(--border); border-radius: 0; color: var(--ink); background: #fff;
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+
+  /* Buttons — sharp, square */
+  button {
+    font-family: inherit; font-size: 16px; font-weight: 600; cursor: pointer;
+    border-radius: 0; padding: 12px 24px; border: 1.5px solid transparent;
+    transition: background-color .12s ease, border-color .12s ease, color .12s ease;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+  .btn:active { background: var(--green-press); border-color: var(--green-press); }
+  .btn-outline { background: transparent; color: var(--accent); border-color: var(--accent); }
+  .btn-outline:hover { background: var(--accent-soft); }
+  .btn-sm {
+    display: block; width: 100%; text-align: left; background: #fff; color: var(--ink);
+    border: 1.5px solid var(--border); font-weight: 500; padding: 12px 16px;
+  }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+  .full { width: 100%; }
+  .stack > * + * { margin-top: 16px; }
+  .mt { margin-top: 24px; }
+
+  .link {
+    background: none; border: none; color: var(--muted); width: auto; padding: 8px 0;
+    font-weight: 500; font-size: 14px; text-decoration: underline;
+  }
+  .link:hover { color: var(--accent); background: none; }
+
+  /* Messages */
+  .msg { font-size: 14px; padding: 12px 16px; border-radius: 0; margin-top: 16px; border: 1.5px solid transparent; }
+  .msg.ok { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+  .msg.err { background: #fbeae8; color: var(--err); border-color: var(--err); }
+  .msg.warn { background: #fbf6ec; color: var(--warn); border-color: #d8a657; }
+
+  /* Technical / code-like text (distances, token values) */
+  code, .mono { font-family: "DM Mono", ui-monospace, monospace; font-size: 0.95em; }
+
+  /* Webcam */
+  video {
+    width: 100%; max-width: 520px; min-width: 0; display: block; margin: 0 auto;
+    border: 1.5px solid var(--border); background: #111827; aspect-ratio: 4/3;
+    object-fit: cover; transform: scaleX(-1);
+  }
+
+  /* Loading state */
+  .loading { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--muted); margin-top: 16px; }
+  .spinner {
+    width: 18px; height: 18px; flex: none;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin .6s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Static info panel text */
+  .info-panel h3 { color: var(--ink); }
+  .info-panel p { color: var(--muted); margin: 0 0 20px; }
+  .info-panel .lead { color: var(--ink); font-weight: 500; }
+
+  /* Landing */
+  .landing { align-items: center; justify-content: center; text-align: center; padding: 48px; }
+  .landing .wordmark { font-size: 48px; font-weight: 600; color: var(--accent); letter-spacing: -0.03em; }
+  .landing .tagline { color: var(--muted); font-size: 18px; margin: 12px 0 40px; }
+  .landing .actions { display: flex; gap: 16px; justify-content: center; }
+
+  /* Enroll status / instructions */
+  .steps { color: var(--muted); margin: 0 0 32px; padding-left: 20px; }
+  .steps li { margin-bottom: 10px; }
+
+  /* Dashboard */
+  .dashnav {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 20px 48px; border-bottom: 1px solid var(--border);
+  }
+  .dashnav .brand-sm { font-weight: 600; color: var(--accent); font-size: 20px; }
+  .dashnav .center { flex: 1; display: flex; align-items: center; justify-content: center; gap: 12px; color: var(--muted); font-size: 14px; }
+  .badge { display: inline-block; font-size: 13px; font-weight: 600; color: var(--accent); border: 1.5px solid var(--accent); padding: 4px 12px; }
+  .signout { background: transparent; color: var(--accent); border: 1.5px solid var(--accent); padding: 10px 20px; font-size: 14px; }
+  .signout:hover { background: var(--accent-soft); }
+  .dashline { font-family: "DM Sans", sans-serif; font-size: 20px; color: var(--muted); text-align: center; margin-top: 48px; }
+
+  /* Mobile: stack columns */
+  @media (max-width: 820px) {
+    .two-col { flex-direction: column; gap: 40px; }
+    .pane.divider { border-left: none; border-top: 1px solid var(--border); padding-left: 0; padding-top: 40px; }
+    .topnav, .page, .dashnav { padding-left: 24px; padding-right: 24px; }
+    .page { padding-top: 32px; padding-bottom: 32px; }
+    .dashnav { flex-wrap: wrap; }
+    .dashnav .center { order: 3; flex-basis: 100%; justify-content: flex-start; }
+  }
+</style>
+</head>
+<body>
+
+  <!-- LANDING -->
+  <section id="landingView" class="view landing">
+    <svg class="logo-full" width="468" height="130" viewBox="0 0 468 130" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Lookin">
+      <g transform="translate(8 16) scale(0.82)">
+        <path d="M10 60 Q60 16 110 60 Q60 104 10 60 Z" fill="#1a5c38"/>
+        <path d="M41 60 L54 73 L82 43" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      </g>
+      <text font-family="DM Sans, sans-serif" font-weight="600" font-size="64" fill="#1a5c38" x="126" y="90">Lookin</text>
+    </svg>
+    <p class="tagline">Face authentication, reimagined.</p>
+    <div class="actions">
+      <button class="btn" onclick="showView('signupView')">Create Account</button>
+      <button class="btn-outline" onclick="showView('loginView')">Sign In</button>
+    </div>
+  </section>
+
+  <!-- SIGN UP -->
+  <section id="signupView" class="view hidden">
+    <header class="topnav">
+      <span class="brand-sm"><svg class="brand-icon" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M5 50 Q50 10 95 50 Q50 90 5 50 Z" fill="#1a5c38"/><path d="M33 50 L45 62 L68 36" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg> Lookin</span>
+      <span class="viewname">Create account</span>
+    </header>
+    <div class="page two-col">
+      <div class="pane">
+        <h2>Create your account</h2>
+        <p class="sub">Use a valid email and a password of at least 8 characters.</p>
+        <div class="field">
+          <label for="suEmail">Email</label>
+          <input id="suEmail" type="email" placeholder="you@example.com" autocomplete="email" />
+        </div>
+        <div class="field">
+          <label for="suPassword">Password</label>
+          <input id="suPassword" type="password" placeholder="••••••••" autocomplete="new-password" />
+        </div>
+        <button class="btn full" onclick="doSignup()">Create Account</button>
+        <div id="signupMsg"></div>
+        <div class="mt"><button class="link" onclick="showView('landingView')">← Back</button></div>
+      </div>
+      <div class="pane divider info-panel">
+        <h3>Why Lookin</h3>
+        <p class="lead">Your face is your password.</p>
+        <p>Lookin replaces forgettable passwords with face authentication. Sign up once, enroll your face, and log in with a glance — no codes to remember, no resets to chase.</p>
+        <p>Every face login runs a liveness check, so a photo or a screen can't impersonate you. Your face data is stored as a one-way embedding, never as an image.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ENROLL FACE -->
+  <section id="enrollView" class="view hidden">
+    <header class="topnav">
+      <span class="brand-sm"><svg class="brand-icon" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M5 50 Q50 10 95 50 Q50 90 5 50 Z" fill="#1a5c38"/><path d="M33 50 L45 62 L68 36" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg> Lookin</span>
+      <span class="viewname">Enroll your face</span>
+    </header>
+    <div class="page two-col">
+      <div class="pane">
+        <h2>Enroll your face</h2>
+        <p class="sub">Enrolling for <strong id="enrollEmail">—</strong></p>
+        <ol class="steps">
+          <li>Center your face in the camera.</li>
+          <li>Make sure you're well lit, facing forward.</li>
+          <li>Capture — we'll scan and store a secure face embedding.</li>
+        </ol>
+        <p class="muted">Use a live camera, not a photo. Enrollment runs the same liveness check as login.</p>
+      </div>
+      <div class="pane divider">
+        <video id="enrollVideo" autoplay playsinline muted></video>
+        <div class="mt"><button class="btn full" id="enrollBtn" onclick="doEnroll()">Capture &amp; Enroll</button></div>
+        <div id="enrollLoading" class="loading hidden"></div>
+        <div id="enrollMsg"></div>
+
+        <!-- duplicate-face warning -->
+        <div id="enrollDupWarn" class="msg warn hidden">
+          <p id="enrollDupText" style="margin:0 0 12px;"></p>
+          <div class="stack">
+            <button class="btn full" onclick="confirmEnrollYes()">Yes, add it to this account</button>
+            <button class="btn-outline full" onclick="confirmEnrollNo()">No, take me to login</button>
+          </div>
+        </div>
+
+        <!-- success -->
+        <div id="enrollSuccessActions" class="hidden mt">
+          <button class="btn full" onclick="showView('loginView')">Go to Login</button>
+        </div>
+
+        <div class="mt"><button class="link" onclick="showView('loginView')">Skip to login →</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LOGIN -->
+  <section id="loginView" class="view hidden">
+    <header class="topnav">
+      <span class="brand-sm"><svg class="brand-icon" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M5 50 Q50 10 95 50 Q50 90 5 50 Z" fill="#1a5c38"/><path d="M33 50 L45 62 L68 36" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg> Lookin</span>
+      <span class="viewname">Sign in</span>
+    </header>
+    <div class="page two-col">
+      <!-- Left: password -->
+      <div class="pane">
+        <h3>With password</h3>
+        <div class="field">
+          <label for="liEmail">Email</label>
+          <input id="liEmail" type="email" placeholder="you@example.com" autocomplete="email" />
+        </div>
+        <div class="field">
+          <label for="liPassword">Password</label>
+          <input id="liPassword" type="password" placeholder="••••••••" autocomplete="current-password" />
+        </div>
+        <button class="btn full" id="loginPwBtn" onclick="doLoginPassword()">Sign In</button>
+        <div id="loginPwLoading" class="loading hidden"></div>
+        <div id="loginPwMsg"></div>
+        <div class="mt"><button class="link" onclick="showView('landingView')">← Back</button></div>
+      </div>
+
+      <!-- Right: face -->
+      <div class="pane divider">
+        <h3>With face</h3>
+        <video id="loginVideo" autoplay playsinline muted></video>
+        <div class="field mt">
+          <label for="lfEmail">Email (for fast face login)</label>
+          <input id="lfEmail" type="email" placeholder="you@example.com" autocomplete="email" />
+        </div>
+        <div class="stack">
+          <button class="btn full" id="loginFaceBtn" onclick="doLoginFaceEmail()">Use my face</button>
+          <button class="btn-outline full" id="loginSearchBtn" onclick="doLoginFaceSearch()">Forgot email? Just show your face</button>
+        </div>
+        <div id="loginFaceLoading" class="loading hidden"></div>
+        <div id="loginFaceMsg"></div>
+
+        <!-- multiple-match picker -->
+        <div id="facePicker" class="hidden mt">
+          <p class="sub" style="margin-bottom:12px;">We found multiple accounts linked to your face:</p>
+          <div id="facePickerList" class="stack"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DASHBOARD -->
+  <section id="dashboardView" class="view hidden">
+    <nav class="dashnav">
+      <span class="brand-sm"><svg class="brand-icon" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M5 50 Q50 10 95 50 Q50 90 5 50 Z" fill="#1a5c38"/><path d="M33 50 L45 62 L68 36" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg> Lookin</span>
+      <span class="center">Signed in as <strong id="dashEmail">—</strong> <span class="badge">Lookin ✓</span></span>
+      <button class="signout" onclick="logout()">Sign Out</button>
+    </nav>
+    <div class="page">
+      <p class="dashline">You look so cute Lowkey!</p>
+      <!-- Kept (hidden) so goDashboard() can still set its text -->
+      <p id="dashFaceStatus" class="hidden">—</p>
+    </div>
+  </section>
+
+<canvas id="snapshot" class="hidden"></canvas>
+
+<script>
+  // ---- Config & in-memory state -------------------------------------------
+  const API = "http://localhost:8001";
+  let authToken = null;       // JWT — memory only, never localStorage
+  let currentEmail = null;    // real email carried from signup -> enroll
+  let activeStream = null;    // current webcam stream
+  let pendingEnrollBlob = null;  // captured frame awaiting dup-warning decision
+  let multiMatchBlob = null;     // captured frame awaiting account-picker choice
+
+  // ---- Email masking (mirrors backend mask_email) -------------------------
+  function maskEmail(email) {
+    if (!email || email.indexOf("@") === -1) return email || "";
+    const at = email.indexOf("@");
+    const local = email.slice(0, at);
+    const domain = email.slice(at + 1);
+    const n = local.length;
+    let m;
+    if (n <= 3)      m = local.slice(0, 1) + "***" + local.slice(-1);
+    else if (n <= 6) m = local.slice(0, 2) + "***" + local.slice(-2);
+    else             m = local.slice(0, 2) + "***" + local.slice(-3);
+    return m + "@" + domain;
+  }
+
+  // ---- Views & camera ------------------------------------------------------
+  function showView(id) {
+    stopCamera();
+    document.querySelectorAll(".view").forEach(v => v.classList.add("hidden"));
+    document.getElementById(id).classList.remove("hidden");
+    clearMessages();
+    document.querySelectorAll(".loading").forEach(l => { l.classList.add("hidden"); l.innerHTML = ""; });
+    // reset transient UI
+    document.getElementById("enrollDupWarn").classList.add("hidden");
+    document.getElementById("enrollSuccessActions").classList.add("hidden");
+    document.getElementById("facePicker").classList.add("hidden");
+    if (id === "enrollView") startCameraInto("enrollVideo", "enrollMsg");
+    if (id === "loginView")  startCameraInto("loginVideo", "loginFaceMsg");
+  }
+
+  async function startCameraInto(videoId, msgId) {
+    try {
+      activeStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      document.getElementById(videoId).srcObject = activeStream;
+    } catch (err) {
+      setMsg(msgId, "Camera access denied. Please allow camera and refresh.", true);
+    }
+  }
+
+  function stopCamera() {
+    if (activeStream) { activeStream.getTracks().forEach(t => t.stop()); activeStream = null; }
+  }
+
+  function captureBlob(videoId) {
+    return new Promise((resolve, reject) => {
+      const video = document.getElementById(videoId);
+      if (!activeStream || !video.videoWidth) { reject(new Error("Camera is not ready.")); return; }
+      const canvas = document.getElementById("snapshot");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(b => b ? resolve(b) : reject(new Error("Could not capture image.")), "image/png");
+    });
+  }
+
+  // ---- Messages ------------------------------------------------------------
+  function setMsg(id, text, isError) {
+    const el = document.getElementById(id);
+    el.className = "msg " + (isError ? "err" : "ok");
+    el.textContent = text;
+  }
+  function clearMessages() {
+    document.querySelectorAll(".msg").forEach(m => {
+      if (m.id === "enrollDupWarn") return; // managed separately
+      m.textContent = ""; m.className = "";
+    });
+  }
+  function netError(id) { setMsg(id, "Could not reach server. Is the backend running?", true); }
+
+  // ---- Loading state -------------------------------------------------------
+  // Disable the clicked button and show an inline spinner + message below it.
+  function startLoading(btnId, loadingId, text) {
+    const btn = document.getElementById(btnId);
+    if (btn) btn.disabled = true;
+    const el = document.getElementById(loadingId);
+    el.innerHTML = '<span class="spinner"></span><span></span>';
+    el.lastChild.textContent = text;
+    el.classList.remove("hidden");
+  }
+  function stopLoading(btnId, loadingId) {
+    const btn = document.getElementById(btnId);
+    if (btn) btn.disabled = false;
+    const el = document.getElementById(loadingId);
+    el.classList.add("hidden");
+    el.innerHTML = "";
+  }
+
+  // ---- Auth completion -----------------------------------------------------
+  // Show "Login successful!" then advance to the dashboard after 1s.
+  function finishLogin(token, msgId) {
+    authToken = token;
+    setMsg(msgId, "Login successful!", false);
+    setTimeout(goDashboard, 1000);
+  }
+
+  async function goDashboard() {
+    let res;
+    try { res = await fetch(API + "/me", { headers: { Authorization: "Bearer " + authToken } }); }
+    catch (e) { logout(); return; }
+    if (!res.ok) { logout(); return; }
+    const me = await res.json();
+    document.getElementById("dashEmail").textContent = maskEmail(me.email);
+    document.getElementById("dashFaceStatus").textContent =
+      me.face_enrolled ? "Face login: enabled" : "Face login: not set up";
+    showView("dashboardView");
+  }
+
+  function logout() {
+    authToken = null;
+    currentEmail = null;
+    pendingEnrollBlob = null;
+    multiMatchBlob = null;
+    showView("landingView");
+  }
+
+  // ---- Sign up -------------------------------------------------------------
+  async function doSignup() {
+    const email = document.getElementById("suEmail").value.trim();
+    const password = document.getElementById("suPassword").value;
+    clearMessages();
+    let res;
+    try {
+      res = await fetch(API + "/signup", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+    } catch (e) { netError("signupMsg"); return; }
+
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 201) {
+      currentEmail = data.email;
+      setMsg("signupMsg", "Account created!", false);
+      setTimeout(() => {
+        document.getElementById("enrollEmail").textContent = maskEmail(currentEmail);
+        showView("enrollView");
+      }, 1000);
+    } else if (res.status === 409) {
+      setMsg("signupMsg", "This email is already registered.", true);
+    } else if (res.status === 400) {
+      setMsg("signupMsg", data.detail || "Invalid email or password.", true);
+    } else {
+      setMsg("signupMsg", "Unexpected error (" + res.status + ").", true);
+    }
+  }
+
+  // ---- Enroll face ---------------------------------------------------------
+  async function doEnroll() {
+    clearMessages();
+    document.getElementById("enrollDupWarn").classList.add("hidden");
+    document.getElementById("enrollSuccessActions").classList.add("hidden");
+    startLoading("enrollBtn", "enrollLoading", "Scanning your face...");
+
+    let blob;
+    try { blob = await captureBlob("enrollVideo"); }
+    catch (e) { stopLoading("enrollBtn", "enrollLoading"); setMsg("enrollMsg", e.message, true); return; }
+
+    // Check whether this face is already on another account before enrolling.
+    let res;
+    try {
+      const fd = new FormData();
+      fd.append("file", blob, "capture.png");
+      res = await fetch(API + "/check-face-exists", { method: "POST", body: fd });
+    } catch (e) { stopLoading("enrollBtn", "enrollLoading"); netError("enrollMsg"); return; }
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      stopLoading("enrollBtn", "enrollLoading");
+      setMsg("enrollMsg", data.detail || "Could not read a clear face. Try again.", true);
+      return;
+    }
+
+    // Exclude our own account (same masked email) from the warning.
+    const selfMasked = maskEmail(currentEmail || "");
+    const others = (data.accounts || []).filter(a => a !== selfMasked);
+
+    if (others.length > 0) {
+      stopLoading("enrollBtn", "enrollLoading");
+      pendingEnrollBlob = blob;
+      document.getElementById("enrollDupText").textContent =
+        "This face is already linked to " + others.join(", ") + ". Add it to this account too?";
+      document.getElementById("enrollDupWarn").classList.remove("hidden");
+      return;
+    }
+
+    // Loading stays on; sendEnroll finishes it.
+    await sendEnroll(blob);
+  }
+
+  function confirmEnrollYes() {
+    document.getElementById("enrollDupWarn").classList.add("hidden");
+    if (pendingEnrollBlob) sendEnroll(pendingEnrollBlob);
+  }
+  function confirmEnrollNo() {
+    pendingEnrollBlob = null;
+    showView("loginView");
+  }
+
+  async function sendEnroll(blob) {
+    startLoading("enrollBtn", "enrollLoading", "Scanning your face...");
+    const fd = new FormData();
+    fd.append("email", currentEmail || "");
+    fd.append("file", blob, "capture.png");
+    let res;
+    try { res = await fetch(API + "/enroll-face", { method: "POST", body: fd }); }
+    catch (e) { stopLoading("enrollBtn", "enrollLoading"); netError("enrollMsg"); return; }
+
+    const data = await res.json().catch(() => ({}));
+    stopLoading("enrollBtn", "enrollLoading");
+    if (res.ok) {
+      setMsg("enrollMsg", "Face enrolled successfully!", false);
+      document.getElementById("enrollSuccessActions").classList.remove("hidden");
+    } else {
+      setMsg("enrollMsg", data.detail || ("Enrollment failed (" + res.status + ")."), true);
+    }
+  }
+
+  // ---- Login: password -----------------------------------------------------
+  async function doLoginPassword() {
+    const email = document.getElementById("liEmail").value.trim();
+    const password = document.getElementById("liPassword").value;
+    clearMessages();
+    startLoading("loginPwBtn", "loginPwLoading", "Signing in...");
+    let res;
+    try {
+      res = await fetch(API + "/login", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+    } catch (e) { stopLoading("loginPwBtn", "loginPwLoading"); netError("loginPwMsg"); return; }
+
+    const data = await res.json().catch(() => ({}));
+    stopLoading("loginPwBtn", "loginPwLoading");
+    if (res.ok && data.token) {
+      finishLogin(data.token, "loginPwMsg");
+    } else if (res.status === 401) {
+      setMsg("loginPwMsg", "Invalid email or password.", true);
+    } else {
+      setMsg("loginPwMsg", data.detail || "Unexpected error (" + res.status + ").", true);
+    }
+  }
+
+  // ---- Login: face + email (1-to-1) ---------------------------------------
+  async function doLoginFaceEmail() {
+    clearMessages();
+    document.getElementById("facePicker").classList.add("hidden");
+    const email = document.getElementById("lfEmail").value.trim();
+    if (!email) { setMsg("loginFaceMsg", "Enter your email, or use \"Forgot email?\".", true); return; }
+
+    startLoading("loginFaceBtn", "loginFaceLoading", "Verifying your face...");
+    let blob;
+    try { blob = await captureBlob("loginVideo"); }
+    catch (e) { stopLoading("loginFaceBtn", "loginFaceLoading"); setMsg("loginFaceMsg", e.message, true); return; }
+
+    const fd = new FormData();
+    fd.append("email", email);
+    fd.append("file", blob, "capture.png");
+    let res;
+    try { res = await fetch(API + "/login-face", { method: "POST", body: fd }); }
+    catch (e) { stopLoading("loginFaceBtn", "loginFaceLoading"); netError("loginFaceMsg"); return; }
+
+    const data = await res.json().catch(() => ({}));
+    stopLoading("loginFaceBtn", "loginFaceLoading");
+    if (res.ok && data.authenticated) {
+      finishLogin(data.token, "loginFaceMsg");
+    } else if (res.status === 401) {
+      if (data.detail === "Liveness check failed")
+        setMsg("loginFaceMsg", "Liveness check failed. Please use a real camera, not a photo.", true);
+      else
+        setMsg("loginFaceMsg", "Face not recognized. Try again or use your password.", true);
+    } else if (res.status === 404) {
+      setMsg("loginFaceMsg", "No account with that email.", true);
+    } else {
+      setMsg("loginFaceMsg", data.detail || "Unexpected error (" + res.status + ").", true);
+    }
+  }
+
+  // ---- Login: face only (1-to-many) ---------------------------------------
+  async function doLoginFaceSearch() {
+    clearMessages();
+    document.getElementById("facePicker").classList.add("hidden");
+
+    startLoading("loginSearchBtn", "loginFaceLoading", "Searching for your face...");
+    let blob;
+    try { blob = await captureBlob("loginVideo"); }
+    catch (e) { stopLoading("loginSearchBtn", "loginFaceLoading"); setMsg("loginFaceMsg", e.message, true); return; }
+
+    const fd = new FormData();
+    fd.append("file", blob, "capture.png");
+    let res;
+    try { res = await fetch(API + "/login-face-search", { method: "POST", body: fd }); }
+    catch (e) { stopLoading("loginSearchBtn", "loginFaceLoading"); netError("loginFaceMsg"); return; }
+
+    const data = await res.json().catch(() => ({}));
+    stopLoading("loginSearchBtn", "loginFaceLoading");
+    if (res.ok && data.match_count === 1) {
+      finishLogin(data.token, "loginFaceMsg");
+    } else if (res.ok && data.match_count > 1) {
+      // Multiple accounts share this face — store the frame and show a picker.
+      multiMatchBlob = blob;
+      const list = document.getElementById("facePickerList");
+      list.innerHTML = "";
+      (data.accounts || []).forEach(acc => {
+        const b = document.createElement("button");
+        b.className = "btn-sm";
+        b.textContent = acc.masked_email;
+        b.onclick = () => selectAccount(acc.user_id);
+        list.appendChild(b);
+      });
+      document.getElementById("facePicker").classList.remove("hidden");
+    } else if (res.status === 401) {
+      if (data.detail === "Liveness check failed")
+        setMsg("loginFaceMsg", "Liveness check failed. Please use a real camera, not a photo.", true);
+      else
+        setMsg("loginFaceMsg", "Face not recognized. Try again or use your password.", true);
+    } else {
+      setMsg("loginFaceMsg", data.detail || "Unexpected error (" + res.status + ").", true);
+    }
+  }
+
+  // ---- Pick one account from the multi-match list -------------------------
+  async function selectAccount(userId) {
+    clearMessages();
+    if (!multiMatchBlob) { setMsg("loginFaceMsg", "Please capture your face again.", true); return; }
+
+    const fd = new FormData();
+    fd.append("user_id", userId);
+    fd.append("file", multiMatchBlob, "capture.png");
+    let res;
+    try { res = await fetch(API + "/select-account", { method: "POST", body: fd }); }
+    catch (e) { netError("loginFaceMsg"); return; }
+
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.token) {
+      document.getElementById("facePicker").classList.add("hidden");
+      finishLogin(data.token, "loginFaceMsg");
+    } else if (res.status === 401) {
+      setMsg("loginFaceMsg", data.detail || "Face verification failed.", true);
+    } else {
+      setMsg("loginFaceMsg", data.detail || "Unexpected error (" + res.status + ").", true);
+    }
+  }
+</script>
+</body>
+</html>
