@@ -326,7 +326,7 @@
 
 <script>
   // ---- Config & in-memory state -------------------------------------------
-  const API = "http://localhost:8001";
+  const API = window.location.origin;
   let authToken = null;       // JWT — memory only, never localStorage
   let currentEmail = null;    // real email carried from signup -> enroll
   let activeStream = null;    // current webcam stream
